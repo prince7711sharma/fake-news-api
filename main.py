@@ -4,49 +4,52 @@ import joblib
 
 from utils import clean_text
 
-# Load trained model
+# CORS IMPORT
+from fastapi.middleware.cors import CORSMiddleware
+
+# Load model
 model = joblib.load("fake_news_model.pkl")
 
-# Load TF-IDF vectorizer
+# Load vectorizer
 vectorizer = joblib.load("vectorizer.pkl")
 
-# Create FastAPI app
 app = FastAPI(
     title="Fake News Detection API",
-    description="API for detecting Fake or Real news using Machine Learning",
     version="1.0"
 )
 
-# Request body format
+# CORS SETTINGS
+origins = ["*"]   # allow all domains
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Request body
 class NewsInput(BaseModel):
     text: str
 
 
-# Home route
 @app.get("/")
 def home():
-    return {
-        "message": "Fake News Detection API is running"
-    }
+    return {"message": "Fake News Detection API Running"}
 
 
-# Prediction route
 @app.post("/predict")
 def predict_news(news: NewsInput):
 
-    # Step 1: Clean text
     cleaned_text = clean_text(news.text)
 
-    # Step 2: Convert text to vector
     vector = vectorizer.transform([cleaned_text])
 
-    # Step 3: Predict
     prediction = model.predict(vector)[0]
 
-    # Step 4: Get confidence score
     confidence = model.predict_proba(vector).max()
 
-    # Step 5: Convert prediction to label
     if prediction == 1:
         result = "Real News"
     else:

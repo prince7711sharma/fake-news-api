@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AI Fake News Detector</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+
+*{
+margin:0;
+padding:0;
+box-sizing:border-box;
+font-family:Segoe UI, sans-serif;
+}
+
+body{
+height:100vh;
+background:linear-gradient(135deg,#141E30,#243B55);
+display:flex;
+align-items:center;
+justify-content:center;
+color:white;
+}
+
+.container{
+width:650px;
+background:rgba(255,255,255,0.05);
+backdrop-filter:blur(12px);
+padding:40px;
+border-radius:15px;
+box-shadow:0 10px 40px rgba(0,0,0,0.4);
+text-align:center;
+}
+
+h1{
+font-size:30px;
+margin-bottom:10px;
+}
+
+p{
+opacity:0.8;
+margin-bottom:25px;
+}
+
+textarea{
+width:100%;
+height:160px;
+border:none;
+border-radius:10px;
+padding:15px;
+font-size:15px;
+outline:none;
+resize:none;
+}
+
+button{
+margin-top:20px;
+padding:14px 28px;
+font-size:16px;
+border:none;
+border-radius:8px;
+cursor:pointer;
+background:linear-gradient(90deg,#00c6ff,#0072ff);
+color:white;
+transition:0.3s;
+}
+
+button:hover{
+transform:scale(1.05);
+}
+
+.loader{
+margin-top:20px;
+display:none;
+font-size:18px;
+}
+
+.result{
+margin-top:25px;
+font-size:24px;
+font-weight:bold;
+}
+
+.real{
+color:#00ff9d;
+}
+
+.fake{
+color:#ff4d4d;
+}
+
+.confidence{
+margin-top:10px;
+opacity:0.9;
+font-size:16px;
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>🧠 AI Fake News Detector</h1>
+<p>Enter a news article to check if it is Real or Fake</p>
+
+<textarea id="newsInput" placeholder="Paste news article here..."></textarea>
+
+<button onclick="detectNews()">Analyze News</button>
+
+<div class="loader" id="loader">Analyzing with AI...</div>
+
+<div id="result" class="result"></div>
+<div id="confidence" class="confidence"></div>
+
+</div>
+
+<script>
+
+async function detectNews(){
+
+let text = document.getElementById("newsInput").value;
+
+if(text.trim()===""){
+alert("Please enter news text");
+return;
+}
+
+document.getElementById("loader").style.display="block";
+document.getElementById("result").innerHTML="";
+document.getElementById("confidence").innerHTML="";
+
+try{
+
+let response = await fetch("https://fake-news-api-8msu.onrender.com/predict",{
+
+method:"POST",
+
+headers:{
+"Content-Type":"application/json"
+},
+
+body:JSON.stringify({
+text:text
+})
+
+});
+
+let data = await response.json();
+
+document.getElementById("loader").style.display="none";
+
+let prediction=data.prediction;
+let confidence=(data.confidence*100).toFixed(2);
+
+let resultDiv=document.getElementById("result");
+
+if(prediction==="Fake News"){
+
+resultDiv.innerHTML="⚠️ Fake News";
+resultDiv.className="result fake";
+
+}else{
+
+resultDiv.innerHTML="✅ Real News";
+resultDiv.className="result real";
+
+}
+
+document.getElementById("confidence").innerHTML=
+"Confidence: "+confidence+"%";
+
+}catch(error){
+
+document.getElementById("loader").style.display="none";
+document.getElementById("result").innerHTML="API Error ❌";
+
+}
+
+}
+
+</script>
+
+</body>
+</html>
