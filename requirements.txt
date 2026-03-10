@@ -6,5 +6,5 @@ numpy
 joblib
 nltk
 pydantic
-matplotlib
-seaborn
+groq
+python-dotenv

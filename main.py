@@ -1,61 +1,111 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 import joblib
+import os
 
 from utils import clean_text
 
-# CORS IMPORT
+# Load environment variables
+from dotenv import load_dotenv
+load_dotenv()
+
+# CORS
 from fastapi.middleware.cors import CORSMiddleware
+
+# GROQ
+from groq import Groq
+
 
 # Load model
 model = joblib.load("fake_news_model.pkl")
-
-# Load vectorizer
 vectorizer = joblib.load("vectorizer.pkl")
 
-app = FastAPI(
-    title="Fake News Detection API",
-    version="1.0"
-)
+# Get API key from .env
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# CORS SETTINGS
-origins = ["*"]   # allow all domains
+client = Groq(api_key=GROQ_API_KEY)
 
+app = FastAPI(title="Hybrid Fake News Detection API")
+
+
+# Enable CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Request body
+
 class NewsInput(BaseModel):
     text: str
 
 
+CONFIDENCE_THRESHOLD = 0.75
+
+
+def verify_with_llm(news_text):
+
+    prompt = f"""
+You are a fact-checking AI.
+
+Analyze the following news text and determine whether it is Real News or Fake News.
+
+News:
+{news_text}
+
+Respond with only:
+Real News
+or
+Fake News
+"""
+
+    response = client.chat.completions.create(
+        model="llama3-8b-8192",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0
+    )
+
+    return response.choices[0].message.content.strip()
+
+
 @app.get("/")
 def home():
-    return {"message": "Fake News Detection API Running"}
+    return {"message": "Hybrid Fake News Detection API running"}
 
 
 @app.post("/predict")
 def predict_news(news: NewsInput):
 
-    cleaned_text = clean_text(news.text)
+    cleaned = clean_text(news.text)
 
-    vector = vectorizer.transform([cleaned_text])
+    vector = vectorizer.transform([cleaned])
 
     prediction = model.predict(vector)[0]
 
     confidence = model.predict_proba(vector).max()
 
     if prediction == 1:
-        result = "Real News"
+        ml_result = "Real News"
     else:
-        result = "Fake News"
+        ml_result = "Fake News"
 
-    return {
-        "prediction": result,
-        "confidence": float(confidence)
-    }
+    if confidence < CONFIDENCE_THRESHOLD:
+
+        llm_result = verify_with_llm(news.text)
+
+        return {
+            "prediction": llm_result,
+            "ml_prediction": ml_result,
+            "confidence": float(confidence),
+            "source": "LLM Verification"
+        }
+
+    else:
+
+        return {
+            "prediction": ml_result,
+            "confidence": float(confidence),
+            "source": "ML Model"
+        }
