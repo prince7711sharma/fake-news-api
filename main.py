@@ -2,31 +2,27 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 import joblib
 import os
+import json
+import feedparser
+from urllib.parse import quote
 
 from utils import clean_text
 
-# Load environment variables
 from dotenv import load_dotenv
 load_dotenv()
 
-# CORS
 from fastapi.middleware.cors import CORSMiddleware
-
-# GROQ
 from groq import Groq
 
 
-# Load model
+# Load ML model
 model = joblib.load("fake_news_model.pkl")
 vectorizer = joblib.load("vectorizer.pkl")
 
-# Get API key from .env
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+# Groq API
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
-client = Groq(api_key=GROQ_API_KEY)
-
-app = FastAPI(title="Hybrid Fake News Detection API")
-
+app = FastAPI(title="Fake News Detection API (RAG + LLM)")
 
 # Enable CORS
 app.add_middleware(
@@ -42,70 +38,99 @@ class NewsInput(BaseModel):
     text: str
 
 
-CONFIDENCE_THRESHOLD = 0.75
+# -------- GOOGLE NEWS SEARCH --------
+def search_recent_news(query):
+
+    url = f"https://news.google.com/rss/search?q={quote(query)}"
+
+    feed = feedparser.parse(url)
+
+    articles = []
+
+    for entry in feed.entries[:5]:
+        articles.append({
+            "title": entry.title,
+            "source": entry.source.title if "source" in entry else "Unknown"
+        })
+
+    return articles
 
 
-def verify_with_llm(news_text):
+# -------- LLM VERIFICATION --------
+def verify_with_llm(news_text, articles):
+
+    context = "\n".join(
+        [f"{a['title']} (Source: {a['source']})" for a in articles]
+    )
 
     prompt = f"""
-You are a fact-checking AI.
+You are a professional fact-checking AI.
 
-Analyze the following news text and determine whether it is Real News or Fake News.
-
-News:
+News to verify:
 {news_text}
 
-Respond with only:
-Real News
-or
-Fake News
+Recent news articles:
+{context}
+
+Based on the articles above, determine if the news is REAL NEWS or FAKE NEWS.
+
+Respond ONLY in JSON format:
+
+{{
+"prediction": "Real News or Fake News",
+"explanation": "Short reason using the articles as evidence"
+}}
 """
 
     response = client.chat.completions.create(
-        model="llama3-8b-8192",
+        model="llama-3.1-8b-instant",
         messages=[{"role": "user", "content": prompt}],
         temperature=0
     )
 
-    return response.choices[0].message.content.strip()
+    content = response.choices[0].message.content
+
+    try:
+        result = json.loads(content)
+    except:
+        result = {
+            "prediction": "Unknown",
+            "explanation": content
+        }
+
+    return result
 
 
 @app.get("/")
 def home():
-    return {"message": "Hybrid Fake News Detection API running"}
+    return {"message": "Fake News Detection API (RAG Enabled)"}
 
 
 @app.post("/predict")
 def predict_news(news: NewsInput):
 
+    # ---- ML prediction ----
     cleaned = clean_text(news.text)
-
     vector = vectorizer.transform([cleaned])
 
-    prediction = model.predict(vector)[0]
-
+    ml_prediction = model.predict(vector)[0]
     confidence = model.predict_proba(vector).max()
 
-    if prediction == 1:
+    if ml_prediction == 1:
         ml_result = "Real News"
     else:
         ml_result = "Fake News"
 
-    if confidence < CONFIDENCE_THRESHOLD:
+    # ---- Search recent news ----
+    articles = search_recent_news(news.text)
 
-        llm_result = verify_with_llm(news.text)
+    # ---- LLM verification ----
+    llm_result = verify_with_llm(news.text, articles)
 
-        return {
-            "prediction": llm_result,
-            "ml_prediction": ml_result,
-            "confidence": float(confidence),
-            "source": "LLM Verification"
-        }
-
-    else:
-
-        return {
-            "prediction": ml_result,
-            "confidence": float(confidence),
-            "source": "ML Model"
-        }
+    return {
+        "prediction": llm_result["prediction"],
+        "explanation": llm_result["explanation"],
+        "ml_prediction": ml_result,
+        "ml_confidence": round(float(confidence)*100,2),
+        "evidence_articles": articles
+    }
